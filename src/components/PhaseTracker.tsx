@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from "react";
-import { phases } from "../data/phases-2d";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { phases as phases2d } from "../data/phases-2d";
+import { phases as phases3d } from "../data/phases-3d";
 import type { Phase } from "../data/phases-2d";
 import TrackerHeader from "./tracker/TrackerHeader";
 import PhaseTabs from "./tracker/PhaseTabs";
@@ -9,10 +10,18 @@ import ResourcesCard from "./tracker/ResourcesCard";
 import SkillList from "./tracker/SkillList";
 import VersionControlSection from "./tracker/VersionControlSection";
 
-const totalSkills = phases.reduce((acc, p) => acc + p.skills.length, 0);
-const STORAGE_KEY = "godot-roadmap-2d-v1";
-
+type Track = "2d" | "3d";
 type CheckedState = Record<string, boolean>;
+
+const STORAGE_KEYS: Record<Track, string> = {
+  "2d": "godot-roadmap-2d-v1",
+  "3d": "godot-roadmap-3d-v1",
+};
+
+const TRACK_PHASES: Record<Track, Phase[]> = {
+  "2d": phases2d,
+  "3d": phases3d,
+};
 
 function phaseProgress(phase: Phase, checked: CheckedState) {
   const done = phase.skills.filter((_, i) => checked[`${phase.id}-${i}`]).length;
@@ -20,28 +29,36 @@ function phaseProgress(phase: Phase, checked: CheckedState) {
 }
 
 export default function PhaseTracker() {
-  const [checked, setChecked] = useState<CheckedState>({});
+  const [track, setTrack] = useState<Track>("2d");
+  const [checkedByTrack, setCheckedByTrack] = useState<Record<Track, CheckedState>>({ "2d": {}, "3d": {} });
   const [activePhase, setActivePhase] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingTimer = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) setChecked(JSON.parse(saved));
-    } catch (_) {}
+    const load = (key: string): CheckedState => {
+      try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : {}; } catch { return {}; }
+    };
+    setCheckedByTrack({ "2d": load(STORAGE_KEYS["2d"]), "3d": load(STORAGE_KEYS["3d"]) });
     setLoaded(true);
   }, []);
+
+  const phases = TRACK_PHASES[track];
+  const checked = checkedByTrack[track];
+  const totalSkills = useMemo(() => phases.reduce((acc, p) => acc + p.skills.length, 0), [phases]);
+
+  const switchTrack = (t: Track) => {
+    setTrack(t);
+    setActivePhase(0);
+  };
 
   const toggleSkill = (phaseId: number | string, skillIdx: number) => {
     const key = `${phaseId}-${skillIdx}`;
     const next = { ...checked, [key]: !checked[key] };
-    setChecked(next);
+    setCheckedByTrack(prev => ({ ...prev, [track]: next }));
     setSaving(true);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    } catch (_) {}
+    try { localStorage.setItem(STORAGE_KEYS[track], JSON.stringify(next)); } catch { }
     clearTimeout(savingTimer.current);
     savingTimer.current = setTimeout(() => setSaving(false), 800);
   };
@@ -61,6 +78,7 @@ export default function PhaseTracker() {
   return (
     <div style={{ background: "#0a0e1a", minHeight: "100vh", fontFamily: "'Courier New', Courier, monospace", color: "#e0e6f0" }}>
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Share+Tech+Mono&display=swap');
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #0a0e1a; } ::-webkit-scrollbar-thumb { background: #2a3a5a; border-radius: 3px; }
         .phase-btn { background: none; border: none; cursor: pointer; transition: all 0.2s; }
@@ -78,12 +96,18 @@ export default function PhaseTracker() {
         .slide-in { animation: slideIn 0.3s ease; }
       `}</style>
 
-      <TrackerHeader overallPct={overallPct} activeColor={phase.color} saving={saving} />
+      <TrackerHeader
+        overallPct={overallPct}
+        activeColor={phase.color}
+        saving={saving}
+        track={track}
+        onSwitchTrack={switchTrack}
+      />
 
       <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 16px" }}>
         <PhaseTabs phases={phases} activePhase={activePhase} checked={checked} onSelect={setActivePhase} />
 
-        <div className="slide-in" key={activePhase} style={{ display: "grid", gap: 16 }}>
+        <div className="slide-in" key={`${track}-${activePhase}`} style={{ display: "grid", gap: 16 }}>
           <PhaseDetailHeader phase={phase} progress={pp} />
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
